@@ -78,7 +78,7 @@ public class UploadSession {
 					newEntry.setName(name);
 					newEntry.setType(EntryType.MEDIA_CLIP);
 					newEntry.setMediaType(MediaType.VIDEO);
-					newEntry.setTags("panopto, " + userId + ", " + folderName);
+					newEntry.setTags("panopto, " + uploadUserId + ", " + folderName);
 
 					AddMediaBuilder requestBuilder = MediaService.add(newEntry)
 							.setCompletion(new OnCompletion<Response<MediaEntry>>() {
@@ -89,8 +89,6 @@ public class UploadSession {
 									if (fentryId != null) {
 										logger.info("Created a new entry: '" + fentryId + "'");
 										doUpload(client, filePath, fentryId, false);
-									} else {
-										return;
 									}
 								}
 							});
@@ -109,14 +107,13 @@ public class UploadSession {
 		}
 	}
 
-	public static boolean doUpload(Client client, String filePath, String entryId, boolean update) {
+	public static void doUpload(Client client, String filePath, String entryId, boolean update) {
 		ParallelUpload pu = new ParallelUpload(client, filePath);
 		String tokenId = null;
 		try {
 			tokenId = pu.upload();
 			if (tokenId == null) {
-				logger.info("UploadSession.doUpload() - tokenId is null");
-				return (false);
+				throw new Exception("UploadSession.doUpload() - tokenId is null");
 			}
 
 			UploadedFileTokenResource fileTokenResource = new UploadedFileTokenResource();
@@ -130,16 +127,14 @@ public class UploadSession {
 				response = APIOkRequestsExecutor.getExecutor().execute(requestBuilder.build(client));
 			}
 			if (response != null && response.error != null) {
-				logger.error(response.error);
-				return (false);
+				throw response.error;
 			}
 
 			logger.info("Uploaded Video file to entry: '" + entryId + "'");
-
-			return (true);
 		} catch (Exception e) {
 			logger.error("UploadSession.doUpload()", e);
-			return (false);
 		}
+
+		System.exit(0);
 	}
 }
