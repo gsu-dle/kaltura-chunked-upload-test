@@ -47,108 +47,100 @@ import com.kaltura.client.utils.response.base.Response;
 public class ParallelUpload {
 
 	/**
-	 * The ChunkedStream class wraps a FileInputStream and limit the size avaialble for reading
-	 * It's required for enabling the http multipart to send partial files using the FilePartSource interface
+	 * The ChunkedStream class wraps a FileInputStream and limit the size avaialble
+	 * for reading
+	 * It's required for enabling the http multipart to send partial files using the
+	 * FilePartSource interface
 	 */
-	private class ChunkedStream extends FileInputStream
-	{
+	private class ChunkedStream extends FileInputStream {
 		int size;
 		int bytesLeft;
 
-		public int getSize()
-		{
+		public int getSize() {
 			return size;
 		}
 
-		public ChunkedStream(String name) throws FileNotFoundException
-		{
+		public ChunkedStream(String name) throws FileNotFoundException {
 			super(name);
 		}
 
-		public void resetChunk(long seek, int _size) throws IOException
-		{
+		public void resetChunk(long seek, int _size) throws IOException {
 			bytesLeft = size = _size;
 			this.getChannel().position(seek);
 		}
 
-		public int read(byte[] b) throws IOException
-		{
+		public int read(byte[] b) throws IOException {
 			if (bytesLeft == 0)
 				return -1;
 
-			int readSize = b.length < size ? b.length : size;
+			int readSize = b.length < this.getSize() ? b.length : this.getSize();
 			bytesLeft -= readSize;
 			return super.read(b, 0, readSize);
 		}
-	
+
 		/*
-		 * prevent the http request from closing the file so it will be reused throughout the thread
-		 */	
-		public void close()
-		{
+		 * prevent the http request from closing the file so it will be reused
+		 * throughout the thread
+		 */
+		public void close() {
 		}
 
-		public void forceClose() throws IOException
-		{
+		public void forceClose() throws IOException {
 			super.close();
 		}
 	}
 
 	/**
 	 * The UploadTask class implements a thread which uploads chunks.
-	 * The code loops and retreives the next chunk to be uploaded from the parent class until there are no more chunks to upload
+	 * The code loops and retreives the next chunk to be uploaded from the parent
+	 * class until there are no more chunks to upload
 	 */
 	private class UploadTask implements Runnable {
 		public ParallelUpload pu;
 
-		public void run()
-		{
+		public void run() {
 			try {
 				String threadName = Thread.currentThread().getName();
 
 				ChunkedStream stream = new ChunkedStream(pu.fileName);
 
-				while(true)
-				{
+				while (true) {
 					// get next chunk for upload
 					int i = pu.getNextChunk();
-					if (i == -1)
-					{
+					if (i == -1) {
 						stream.forceClose();
 						return;
 					}
 
 					// calculate seek and size for chunk
-					long seekPos = (long)i * pu.chunkSize;
-					int size = (int)Math.min(pu.chunkSize, pu.fileSize - seekPos);
+					long seekPos = (long) i * pu.chunkSize;
+					int size = (int) Math.min(pu.chunkSize, pu.fileSize - seekPos);
 
 					int chunkRetries = 0;
 					boolean success = false;
 					boolean finalChunk = false;
-					do
-					{
+					do {
 						log.info(String.format("%s: chunk %d pos %d size %d", threadName, i, seekPos, size));
 
 						stream.resetChunk(seekPos, size);
-						finalChunk = (seekPos + size) == pu.fileSize;	
-						while(finalChunk && chunksUploaded < chunkCount -1){
-							log.info("I will sleep because " + chunksUploaded + " and-" + Integer. toString(chunkCount -1));
+						finalChunk = (seekPos + size) == pu.fileSize;
+						while (finalChunk && chunksUploaded < chunkCount - 1) {
+							log.info("I will sleep because " + chunksUploaded + " and-"
+									+ Integer.toString(chunkCount - 1));
 							Thread.sleep(5);
-						} 
+						}
 						success = pu.addChunk(stream, true, finalChunk, seekPos);
-						
-						if (success)
-						{
+
+						if (success) {
 							pu.addUploadSize(size);
 							chunksUploaded++;
 							break;
 						}
 
 						chunkRetries++;
-					} while(pu.countRetries(chunkRetries));
+					} while (pu.countRetries(chunkRetries));
 				}
-			}
-			catch (Exception e) {
+			} catch (Exception e) {
 				e.printStackTrace();
 				pu.countRetries(pu.maxChunkRetries);
 			}
@@ -167,13 +159,12 @@ public class ParallelUpload {
 	private UploadToken upToken;
 	private int retryCount = 0;
 
-	public int chunkSize = 10*1024*1024;
+	public int chunkSize = 10 * 1024 * 1024;
 	public int threadCount = 5;
 	public int maxChunkRetries = 3;
 	public int maxRetries = 5;
 
-	private synchronized boolean countRetries(int chunkRetries)
-	{
+	private synchronized boolean countRetries(int chunkRetries) {
 		if (chunkRetries < maxChunkRetries)
 			retryCount++;
 		else
@@ -182,27 +173,23 @@ public class ParallelUpload {
 		return retryCount > maxRetries;
 	}
 
-	private synchronized int getNextChunk()
-	{
+	private synchronized int getNextChunk() {
 		if (retryCount < maxRetries && nextChunk < chunkCount)
 			return nextChunk++;
 
-		return -1; 
+		return -1;
 	}
 
-	private synchronized void addUploadSize(long size)
-	{
+	private synchronized void addUploadSize(long size) {
 		uploadSize += size;
 	}
 
-	public ParallelUpload(Client _client, String _fileName)
-	{
+	public ParallelUpload(Client _client, String _fileName) {
 		client = _client;
 		fileName = _fileName;
 	}
 
-	public String upload() throws InterruptedException, IOException, APIException
-	{
+	public String upload() throws InterruptedException, IOException, APIException {
 		File fileData = new File(fileName);
 		fileSize = fileData.length();
 
@@ -213,7 +200,7 @@ public class ParallelUpload {
 
 		upToken = getUploadToken();
 
-		chunkCount = (int)((fileSize + chunkSize - 1) / chunkSize);
+		chunkCount = (int) ((fileSize + chunkSize - 1) / chunkSize);
 
 		log.info("Uploading token " + upToken.getId() + " file size " + fileSize + " in " + chunkCount + " chunks");
 
@@ -222,8 +209,8 @@ public class ParallelUpload {
 		stream.forceClose();
 
 		List<Thread> threads = new ArrayList<Thread>();
-		
-		for(int i=0; i < threadCount; i++) {
+
+		for (int i = 0; i < threadCount; i++) {
 			UploadTask uploadTask = new UploadTask();
 			uploadTask.pu = this;
 
@@ -232,54 +219,54 @@ public class ParallelUpload {
 			t.start();
 		}
 
-		for(Thread t : threads)
+		for (Thread t : threads)
 			t.join();
 
 		log.info("Uploading token " + upToken.getId() + " file size " + fileSize + " uploaded " + uploadSize);
 
 		return uploadSize == fileSize ? upToken.getId() : null;
- 	}
+	}
 
-	private UploadToken getUploadToken() throws APIException
-	{
+	private UploadToken getUploadToken() throws APIException {
 		UploadToken uploadToken = new UploadToken();
 		uploadToken.setFileName(fileName);
 
 		AddUploadTokenBuilder requestBuilder = UploadTokenService.add(uploadToken);
-		Response<UploadToken> response = (Response<UploadToken>) APIOkRequestsExecutor.getExecutor().execute(requestBuilder.build(client));
-		if (response != null)
-		{
-			if (response.error != null)
-			{
+		Response<?> response = APIOkRequestsExecutor.getExecutor().execute(requestBuilder.build(client));
+		if (response != null) {
+			if (response.error != null) {
 				throw response.error;
 			}
-			return response.results;
+			if (response.results instanceof UploadToken) {
+				return (UploadToken) response.results;
+			}
 		}
 		return null;
 	}
-    /**
-     * @param ChunkedStream stream
-     * @param boolean resume
-     * @param boolean finalChunk
-     * @param long resumeAt
-     *
-     * @return
-     */
-    private boolean addChunk(ChunkedStream stream, boolean resume, boolean finalChunk, long resumeAt) throws IOException {
-        try
-        {
-			UploadUploadTokenBuilder requestBuilder = UploadTokenService.upload(upToken.getId(), stream, "application/octet-stream", fileName, stream.size, resume, finalChunk, resumeAt);
-			Response<UploadToken> response = (Response<UploadToken>)APIOkRequestsExecutor.getExecutor().execute(requestBuilder.build(client));
-			if(response == null || response.error != null)
-			{
+
+	/**
+	 * @param ChunkedStream stream
+	 * @param boolean       resume
+	 * @param boolean       finalChunk
+	 * @param long          resumeAt
+	 *
+	 * @return
+	 */
+	private boolean addChunk(ChunkedStream stream, boolean resume, boolean finalChunk, long resumeAt)
+			throws IOException {
+		try {
+			UploadUploadTokenBuilder requestBuilder = UploadTokenService.upload(upToken.getId(), stream,
+					"application/octet-stream", fileName, stream.size, resume, finalChunk, resumeAt);
+			Response<?> response = APIOkRequestsExecutor.getExecutor().execute(requestBuilder.build(client));
+			if (response == null || response.error != null) {
 				response.error.printStackTrace();
 				return false;
 			}
-            return true;
-        } catch (Exception e) {
-            e.printStackTrace();
-            log.error(e.getMessage());
-        }
-        return false;
-    }
+			return true;
+		} catch (Exception e) {
+			e.printStackTrace();
+			log.error(e.getMessage());
+		}
+		return false;
+	}
 }
